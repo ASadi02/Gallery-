@@ -18,9 +18,15 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
       - name: Install Android SDK Packages
         shell: bash
         run: |
+          set +o pipefail
           SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           mkdir -p "$SDK_ROOT"
           SDKMANAGER=""
@@ -44,17 +50,14 @@ jobs:
           fi
 
           if [ -n "$SDKMANAGER" ]; then
-            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
-            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-          else
-            echo "sdk.dir=$SDK_ROOT" > local.properties
+            (yes || true) | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+            "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           fi
+          echo "sdk.dir=$SDK_ROOT" > local.properties
 
       - name: Scaffold Android Project
         shell: bash
         run: |
-          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          echo "sdk.dir=$SDK_ROOT" > local.properties
           mkdir -p app/src/main/java/com/studio/galleryeditor
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/xml
@@ -411,6 +414,7 @@ jobs:
           import android.content.Context
           import android.graphics.Bitmap
           import android.graphics.BitmapFactory
+          import android.graphics.Matrix
           import android.net.Uri
           import android.os.Build
           import android.os.Environment
@@ -588,6 +592,17 @@ jobs:
 
               suspend fun decodeBitmapForEdit(uri: Uri, maxDim: Int = 2048): Bitmap? = withContext(Dispatchers.IO) {
                   try {
+                      var rotationDeg = 0f
+                      context.contentResolver.openInputStream(uri)?.use { stream ->
+                          val exif = ExifInterface(stream)
+                          rotationDeg = when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                              ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                              ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                              ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                              else -> 0f
+                          }
+                      }
+
                       val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                       context.contentResolver.openInputStream(uri)?.use {
                           BitmapFactory.decodeStream(it, null, bounds)
@@ -600,8 +615,17 @@ jobs:
                           inSampleSize = sample
                           inPreferredConfig = Bitmap.Config.ARGB_8888
                       }
-                      context.contentResolver.openInputStream(uri)?.use {
+                      val rawBmp = context.contentResolver.openInputStream(uri)?.use {
                           BitmapFactory.decodeStream(it, null, opts)
+                      } ?: return@withContext null
+
+                      if (rotationDeg == 0f) {
+                          rawBmp
+                      } else {
+                          val matrix = Matrix().apply { postRotate(rotationDeg) }
+                          val rotated = Bitmap.createBitmap(rawBmp, 0, 0, rawBmp.width, rawBmp.height, matrix, true)
+                          if (rotated != rawBmp) rawBmp.recycle()
+                          rotated
                       }
                   } catch (_: Exception) {
                       null
@@ -682,17 +706,16 @@ jobs:
           import android.content.Context
           import android.graphics.Bitmap
           import android.opengl.EGL14
-          import android.opengl.EGLConfig
           import android.opengl.EGLContext
           import android.opengl.EGLDisplay
           import android.opengl.EGLSurface
           import android.opengl.GLES20
           import android.opengl.GLSurfaceView
           import android.opengl.GLUtils
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
           import java.nio.ByteBuffer
           import java.nio.ByteOrder
-          import java.nio.FloatBuffer
-          import javax.microedition.khronos.egl.EGL10
           import javax.microedition.khronos.opengles.GL10
           import kotlin.math.cos
           import kotlin.math.sin
@@ -771,6 +794,14 @@ jobs:
                       return smoothstep(0.14, 0.01, diff);
                   }
 
+                  vec3 wheelTint(vec2 xy) {
+                      return vec3(
+                          xy.x,
+                          -0.5 * xy.x + 0.866 * xy.y,
+                          -0.5 * xy.x - 0.866 * xy.y
+                      );
+                  }
+
                   void main() {
                       vec3 col = texture2D(uImage, vTexCoord).rgb;
 
@@ -817,9 +848,9 @@ jobs:
                       float wHigh = smoothstep(0.58, 1.0, lNow);
                       float wMid = max(0.0, 1.0 - wShadow - wHigh);
 
-                      col += uShadowWheel.xy * (0.35 * wShadow) + vec2(uShadowWheel.z * 0.25 * wShadow);
-                      col += uMidtoneWheel.xy * (0.35 * wMid) + vec2(uMidtoneWheel.z * 0.25 * wMid);
-                      col += uHighlightWheel.xy * (0.35 * wHigh) + vec2(uHighlightWheel.z * 0.25 * wHigh);
+                      col += wheelTint(uShadowWheel.xy) * (0.30 * wShadow) + vec3(uShadowWheel.z * 0.25 * wShadow);
+                      col += wheelTint(uMidtoneWheel.xy) * (0.30 * wMid) + vec3(uMidtoneWheel.z * 0.25 * wMid);
+                      col += wheelTint(uHighlightWheel.xy) * (0.30 * wHigh) + vec3(uHighlightWheel.z * 0.25 * wHigh);
                       col = clamp(col, 0.0, 1.0);
 
                       vec3 hsv = rgb2hsv(col);
@@ -981,7 +1012,7 @@ jobs:
                       position(0)
                   }
 
-                  override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+                  override fun onSurfaceCreated(gl: GL10?, config: javax.microedition.khronos.egl.EGLConfig?) {
                       GLES20.glClearColor(0.05f, 0.05f, 0.06f, 1f)
                       shader = ShaderProgram(GlShaders.VERTEX_SHADER, GlShaders.FRAGMENT_SHADER)
                       imageTexId = createTexture()
@@ -1067,12 +1098,12 @@ jobs:
               }
           }
 
-          fun renderBitmapOffscreen(source: Bitmap, params: EditParams): Bitmap {
+          suspend fun renderBitmapOffscreen(source: Bitmap, params: EditParams): Bitmap = withContext(Dispatchers.Default) {
               val w = source.width
               val h = source.height
               val eglDisplay: EGLDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
               EGL14.eglInitialize(eglDisplay, IntArray(2), 0, IntArray(2), 0)
-              val configs = arrayOfNulls<EGLConfig>(1)
+              val configs = arrayOfNulls<android.opengl.EGLConfig>(1)
               val numConfigs = IntArray(1)
               val cfgAttrs = intArrayOf(
                   EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
@@ -1135,8 +1166,9 @@ jobs:
                   put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
                   position(0)
               }
+              // Flipped vertically so glReadPixels matches top-down Bitmap orientation
               val tex = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
-                  put(floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f))
+                  put(floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f))
                   position(0)
               }
               val posLoc = GLES20.glGetAttribLocation(sp.program, "aPosition")
@@ -1162,7 +1194,7 @@ jobs:
               EGL14.eglDestroyContext(eglDisplay, eglCtx)
               EGL14.eglTerminate(eglDisplay)
 
-              return result
+              result
           }
           EOF
 
@@ -1181,6 +1213,7 @@ jobs:
           import androidx.activity.compose.setContent
           import androidx.activity.result.contract.ActivityResultContracts
           import androidx.compose.foundation.Canvas
+          import androidx.compose.foundation.ExperimentalFoundationApi
           import androidx.compose.foundation.background
           import androidx.compose.foundation.clickable
           import androidx.compose.foundation.gestures.detectDragGestures
@@ -1199,6 +1232,7 @@ jobs:
           import androidx.compose.foundation.shape.RoundedCornerShape
           import androidx.compose.foundation.verticalScroll
           import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.automirrored.filled.ArrowBack
           import androidx.compose.material.icons.filled.*
           import androidx.compose.material.icons.outlined.*
           import androidx.compose.material3.*
@@ -1249,7 +1283,6 @@ jobs:
               }
           }
 
-          @OptIn(ExperimentalMaterial3Api::class)
           @Composable
           private fun GalleryProApp(repo: MediaRepository) {
               val context = LocalContext.current
@@ -1464,7 +1497,7 @@ jobs:
               }
           }
 
-          @OptIn(ExperimentalMaterial3Api::class)
+          @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
           @Composable
           private fun PhotoPagerViewerScreen(
               items: List<MediaItem>,
@@ -1535,7 +1568,7 @@ jobs:
                           horizontalArrangement = Arrangement.SpaceBetween
                       ) {
                           IconButton(onClick = onBackToGrid) {
-                              Icon(Icons.Filled.ArrowBack, contentDescription = "Geri", tint = Color.White)
+                              Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri", tint = Color.White)
                           }
                           Text(
                               text = "${pagerState.currentPage + 1} / ${items.size}",
@@ -2085,14 +2118,8 @@ jobs:
           }
           EOF
 
-          cat << 'EOF' > gradlew
-          #!/usr/bin/env sh
-          exec gradle "$@"
-          EOF
-          chmod +x gradlew
-
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
