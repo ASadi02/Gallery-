@@ -18,12 +18,43 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Install Android SDK Packages
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          mkdir -p "$SDK_ROOT"
+          SDKMANAGER=""
+          for candidate in \
+            "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "$SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" \
+            "$SDK_ROOT/cmdline-tools/15.0/bin/sdkmanager" \
+            "$SDK_ROOT/cmdline-tools/14.0/bin/sdkmanager" \
+            "$SDK_ROOT/cmdline-tools/12.0/bin/sdkmanager" \
+            "$SDK_ROOT/cmdline-tools/11.0/bin/sdkmanager" \
+            "$(command -v sdkmanager 2>/dev/null || true)"
+          do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              SDKMANAGER="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)"
+          fi
+
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          else
+            echo "sdk.dir=$SDK_ROOT" > local.properties
+          fi
 
       - name: Scaffold Android Project
         shell: bash
         run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "sdk.dir=$SDK_ROOT" > local.properties
           mkdir -p app/src/main/java/com/studio/galleryeditor
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/xml
@@ -221,51 +252,45 @@ jobs:
 
           data class ColorWheelOffset(
               val hueAngleDeg: Float = 0f,
-              val strength: Float = 0f, // 0..1
-              val luminance: Float = 0f // -1..1
+              val strength: Float = 0f,
+              val luminance: Float = 0f
           )
 
           data class HslBand(
               val name: String,
-              val hue: Float = 0f,        // -1..1
-              val saturation: Float = 0f, // -1..1
-              val luminance: Float = 0f   // -1..1
+              val hue: Float = 0f,
+              val saturation: Float = 0f,
+              val luminance: Float = 0f
           )
 
           data class EditParams(
-              // Light
-              val exposure: Float = 0f,     // -3..3 EV
-              val contrast: Float = 0f,     // -1..1
-              val highlights: Float = 0f,   // -1..1
-              val shadows: Float = 0f,      // -1..1
-              val whites: Float = 0f,       // -1..1
-              val blacks: Float = 0f,       // -1..1
+              val exposure: Float = 0f,
+              val contrast: Float = 0f,
+              val highlights: Float = 0f,
+              val shadows: Float = 0f,
+              val whites: Float = 0f,
+              val blacks: Float = 0f,
 
-              // Color & WB
-              val temp: Float = 0f,         // -1..1
-              val tint: Float = 0f,         // -1..1
-              val vibrance: Float = 0f,     // -1..1
-              val saturation: Float = 0f,   // -1..1
+              val temp: Float = 0f,
+              val tint: Float = 0f,
+              val vibrance: Float = 0f,
+              val saturation: Float = 0f,
 
-              // Effects & Detail
-              val dehaze: Float = 0f,       // -1..1
-              val clarity: Float = 0f,      // -1..1
-              val vignette: Float = 0f,     // -1..1
-              val grain: Float = 0f,        // 0..1
-              val sharpen: Float = 0f,      // 0..1
+              val dehaze: Float = 0f,
+              val clarity: Float = 0f,
+              val vignette: Float = 0f,
+              val grain: Float = 0f,
+              val sharpen: Float = 0f,
 
-              // Curves (sorted points in 0..1)
               val masterCurve: List<CurvePoint> = listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f)),
               val redCurve: List<CurvePoint> = listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f)),
               val greenCurve: List<CurvePoint> = listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f)),
               val blueCurve: List<CurvePoint> = listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f)),
 
-              // 3-Way Color Wheels
               val shadowWheel: ColorWheelOffset = ColorWheelOffset(),
               val midtoneWheel: ColorWheelOffset = ColorWheelOffset(),
               val highlightWheel: ColorWheelOffset = ColorWheelOffset(),
 
-              // HSL 8 bands: Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta
               val hslBands: List<HslBand> = listOf(
                   HslBand("Kırmızı"),
                   HslBand("Turuncu"),
@@ -405,7 +430,6 @@ jobs:
               private val prefs = context.getSharedPreferences("gallery_pro_prefs", Context.MODE_PRIVATE)
 
               fun isGpsMetadataEnabled(): Boolean {
-                  // Supports both internal preference and external camera setting toggle
                   return prefs.getBoolean("show_gps_metadata", true)
               }
 
@@ -671,7 +695,6 @@ jobs:
           import javax.microedition.khronos.egl.EGL10
           import javax.microedition.khronos.opengles.GL10
           import kotlin.math.cos
-          import kotlin.math.pow
           import kotlin.math.sin
 
           object GlShaders {
@@ -751,16 +774,13 @@ jobs:
                   void main() {
                       vec3 col = texture2D(uImage, vTexCoord).rgb;
 
-                      // White Balance (Temp / Tint)
                       col.r += uTemp * 0.14 + uTint * 0.05;
                       col.g -= uTint * 0.10;
                       col.b -= uTemp * 0.14 - uTint * 0.05;
                       col = clamp(col, 0.0, 1.0);
 
-                      // Exposure (EV)
                       col *= pow(2.0, uExposure);
 
-                      // Highlights, Shadows, Whites, Blacks
                       float lum = luma(col);
                       float hiMask = smoothstep(0.45, 1.0, lum);
                       float shMask = 1.0 - smoothstep(0.0, 0.55, lum);
@@ -773,7 +793,6 @@ jobs:
                       col += uBlacks * 0.35 * blMask;
                       col = clamp(col, 0.0, 1.0);
 
-                      // Dehaze & Clarity via local contrast approximation
                       vec3 blur1 = (
                           texture2D(uImage, vTexCoord + vec2(uTexel.x * 2.0, 0.0)).rgb +
                           texture2D(uImage, vTexCoord - vec2(uTexel.x * 2.0, 0.0)).rgb +
@@ -790,11 +809,9 @@ jobs:
                       }
                       col = clamp(col, 0.0, 1.0);
 
-                      // Contrast around mid-grey
                       col = ((col - 0.5) * (1.0 + uContrast * 0.85)) + 0.5;
                       col = clamp(col, 0.0, 1.0);
 
-                      // 3-Way Color Wheels
                       float lNow = luma(col);
                       float wShadow = 1.0 - smoothstep(0.0, 0.42, lNow);
                       float wHigh = smoothstep(0.58, 1.0, lNow);
@@ -805,7 +822,6 @@ jobs:
                       col += uHighlightWheel.xy * (0.35 * wHigh) + vec2(uHighlightWheel.z * 0.25 * wHigh);
                       col = clamp(col, 0.0, 1.0);
 
-                      // HSL 8-band + Vibrance + Saturation
                       vec3 hsv = rgb2hsv(col);
                       float centers[8];
                       centers[0] = 0.0;
@@ -826,18 +842,15 @@ jobs:
                           }
                       }
 
-                      // Vibrance protects already saturated pixels
                       float satBoost = uVibrance * 0.65 * (1.0 - hsv.y * 0.75) + uSaturation * 0.85;
                       hsv.y = clamp(hsv.y + satBoost, 0.0, 1.0);
                       col = hsv2rgb(hsv);
 
-                      // Curves LUT (256x1)
                       float rCurve = texture2D(uLut, vec2(clamp(col.r, 0.0, 1.0), 0.5)).r;
                       float gCurve = texture2D(uLut, vec2(clamp(col.g, 0.0, 1.0), 0.5)).g;
                       float bCurve = texture2D(uLut, vec2(clamp(col.b, 0.0, 1.0), 0.5)).b;
                       col = vec3(rCurve, gCurve, bCurve);
 
-                      // Vignette
                       if (abs(uVignette) > 0.001) {
                           vec2 centered = (vTexCoord - 0.5) * 1.4142;
                           float dist = length(centered);
@@ -845,7 +858,6 @@ jobs:
                           col *= (1.0 - vig * uVignette * 0.65);
                       }
 
-                      // Film Grain
                       if (uGrain > 0.001) {
                           float n = (hash12(gl_FragCoord.xy) - 0.5) * 2.0;
                           col += n * uGrain * 0.14;
@@ -996,7 +1008,6 @@ jobs:
                           pendingBitmap = null
                       }
 
-                      // Aspect-fit viewport inside surface
                       val viewAspect = surfaceW.toFloat() / surfaceH.toFloat()
                       val imgAspect = imgW.toFloat() / imgH.toFloat().coerceAtLeast(0.01f)
                       var vpW = surfaceW
@@ -1010,7 +1021,6 @@ jobs:
                       val vpY = (surfaceH - vpH) / 2
                       GLES20.glViewport(vpX, vpY, vpW, vpH)
 
-                      // Upload LUT
                       val lutFloats = (if (showOriginal) EditParams() else params).buildLut256()
                       val lutBuf = ByteBuffer.allocateDirect(256 * 4).order(ByteOrder.nativeOrder())
                       for (i in 0 until 256) {
@@ -1213,7 +1223,6 @@ jobs:
           import kotlin.math.atan2
           import kotlin.math.cos
           import kotlin.math.hypot
-          import kotlin.math.roundToInt
           import kotlin.math.sin
 
           class MainActivity : ComponentActivity() {
@@ -1662,9 +1671,9 @@ jobs:
               var showUnsavedDialog by remember { mutableStateOf(false) }
               var isSaving by remember { mutableStateOf(false) }
 
-              var activeTab by remember { mutableStateOf(0) } // 0: Işık, 1: Renk, 2: Eğri, 3: Teker, 4: Efekt
+              var activeTab by remember { mutableStateOf(0) }
               var activeChannel by remember { mutableStateOf(CurveChannel.MASTER) }
-              var activeWheel by remember { mutableStateOf(0) } // 0: Gölgeler, 1: Orta Tonlar, 2: Aydınlıklar
+              var activeWheel by remember { mutableStateOf(0) }
               var activeHslIndex by remember { mutableStateOf(0) }
 
               var glViewRef by remember { mutableStateOf<PhotoGlSurfaceView?>(null) }
@@ -1702,7 +1711,6 @@ jobs:
                       .fillMaxSize()
                       .background(Color(0xFF0A0B0D))
               ) {
-                  // Top Bar
                   Row(
                       modifier = Modifier
                           .fillMaxWidth()
@@ -1749,7 +1757,6 @@ jobs:
                       }
                   }
 
-                  // Real-Time OpenGL Preview
                   Box(
                       modifier = Modifier
                           .fillMaxWidth()
@@ -1769,7 +1776,6 @@ jobs:
                       )
                   }
 
-                  // Tool Controls Area
                   Column(
                       modifier = Modifier
                           .fillMaxWidth()
@@ -1884,7 +1890,6 @@ jobs:
                       }
                   }
 
-                  // Bottom Category Tabs
                   val tabs = listOf("Işık", "Renk / HSL", "Eğriler", "Tekerler", "Efekt")
                   Row(
                       modifier = Modifier
