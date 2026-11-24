@@ -1,0 +1,2096 @@
+name: Build Minimalist Gallery & Pro Color Editor APK
+
+on:
+  push:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Scaffold Android Project
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/com/studio/galleryeditor
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/xml
+
+          cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "GalleryProEditor"
+          include(":app")
+          EOF
+
+          cat << 'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+
+          cat << 'EOF' > app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.studio.galleryeditor"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.studio.galleryeditor"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+
+              buildFeatures {
+                  compose = true
+              }
+
+              composeOptions {
+                  kotlinCompilerExtensionVersion = "1.5.14"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+              implementation("androidx.activity:activity-compose:1.9.1")
+              implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.compose.material:material-icons-extended")
+              implementation("androidx.exifinterface:exifinterface:1.3.7")
+              implementation("io.coil-kt:coil-compose:2.7.0")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+          }
+          EOF
+
+          cat << 'EOF' > app/proguard-rules.pro
+          # Keep classes for release builds if enabled later
+          EOF
+
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+          <resources>
+              <string name="app_name">Galeri &amp; Renk Stüdyosu</string>
+          </resources>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/xml/file_paths.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <cache-path name="shared_images" path="." />
+              <external-files-path name="ext_images" path="." />
+          </paths>
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+              <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+
+              <application
+                  android:allowBackup="true"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@android:style/Theme.Material.NoActionBar">
+
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="${applicationId}.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/file_paths" />
+                  </provider>
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|screenLayout">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/studio/galleryeditor/EditModels.kt
+          package com.studio.galleryeditor
+
+          import android.net.Uri
+          import kotlin.math.abs
+
+          data class MediaItem(
+              val id: Long,
+              val uri: Uri,
+              val displayName: String,
+              val mimeType: String,
+              val sizeBytes: Long,
+              val width: Int,
+              val height: Int,
+              val dateAddedSec: Long,
+              val isFavorite: Boolean = false
+          )
+
+          data class PhotoMetadata(
+              val fileName: String,
+              val mimeType: String,
+              val dimensions: String,
+              val fileSizeFormatted: String,
+              val dateTaken: String,
+              val cameraModel: String?,
+              val lensModel: String?,
+              val iso: String?,
+              val shutterSpeed: String?,
+              val aperture: String?,
+              val focalLength: String?,
+              val gpsSummary: String?
+          )
+
+          enum class CurveChannel(val label: String) {
+              MASTER("RGB"),
+              RED("Kırmızı"),
+              GREEN("Yeşil"),
+              BLUE("Mavi")
+          }
+
+          data class CurvePoint(val x: Float, val y: Float)
+
+          data class ColorWheelOffset(
+              val hueAngleDeg: Float = 0f,
+              val strength: Float = 0f, // 0..1
+              val luminance: Float = 0f // -1..1
+          )
+
+          data class HslBand(
+              val name: String,
+              val hue: Float = 0f,        // -1..1
+              val saturation: Float = 0f, // -1..1
+              val luminance: Float = 0f   // -1..1
+          )
+
+          data class EditParams(
+              // Light
+              val exposure: Float = 0f,     // -3..3 EV
+              val contrast: Float = 0f,     // -1..1
+              val highlights: Float = 0f,   // -1..1
+              val shadows: Float = 0f,      // -1..1
+              val whites: Float = 0f,       // -1..1
+              val blacks: Float = 0f,       // -1..1
+
+              // Color & WB
+              val temp: Float = 0f,         // -1..1
+              val tint: Float = 0f,         // -1..1
+              val vibrance: Float = 0f,     // -1..1
+              val saturation: Float = 0f,   // -1..1
+
+              // Effects & Detail
+              val dehaze: Float = 0f,       // -1..1
+              val clarity: Float = 0f,      // -1..1
+              val vignette: Float = 0f,     // -1..1
+              val grain: Float = 0f,        // 0..1
+              val sharpen: Float = 0f,      // 0..1
+
+              // Curves (sorted points in 0..1)
+              val masterCurve: List<CurvePoint> = listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f)),
+              val redCurve: List<CurvePoint> = listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f)),
+              val greenCurve: List<CurvePoint> = listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f)),
+              val blueCurve: List<CurvePoint> = listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f)),
+
+              // 3-Way Color Wheels
+              val shadowWheel: ColorWheelOffset = ColorWheelOffset(),
+              val midtoneWheel: ColorWheelOffset = ColorWheelOffset(),
+              val highlightWheel: ColorWheelOffset = ColorWheelOffset(),
+
+              // HSL 8 bands: Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta
+              val hslBands: List<HslBand> = listOf(
+                  HslBand("Kırmızı"),
+                  HslBand("Turuncu"),
+                  HslBand("Sarı"),
+                  HslBand("Yeşil"),
+                  HslBand("Camgöbeği"),
+                  HslBand("Mavi"),
+                  HslBand("Mor"),
+                  HslBand("Eflatun")
+              )
+          ) {
+              fun isModified(): Boolean {
+                  val d = EditParams()
+                  return abs(exposure - d.exposure) > 0.001f ||
+                      abs(contrast - d.contrast) > 0.001f ||
+                      abs(highlights - d.highlights) > 0.001f ||
+                      abs(shadows - d.shadows) > 0.001f ||
+                      abs(whites - d.whites) > 0.001f ||
+                      abs(blacks - d.blacks) > 0.001f ||
+                      abs(temp - d.temp) > 0.001f ||
+                      abs(tint - d.tint) > 0.001f ||
+                      abs(vibrance - d.vibrance) > 0.001f ||
+                      abs(saturation - d.saturation) > 0.001f ||
+                      abs(dehaze - d.dehaze) > 0.001f ||
+                      abs(clarity - d.clarity) > 0.001f ||
+                      abs(vignette - d.vignette) > 0.001f ||
+                      abs(grain - d.grain) > 0.001f ||
+                      abs(sharpen - d.sharpen) > 0.001f ||
+                      masterCurve != d.masterCurve ||
+                      redCurve != d.redCurve ||
+                      greenCurve != d.greenCurve ||
+                      blueCurve != d.blueCurve ||
+                      shadowWheel != d.shadowWheel ||
+                      midtoneWheel != d.midtoneWheel ||
+                      highlightWheel != d.highlightWheel ||
+                      hslBands != d.hslBands
+              }
+
+              fun curveFor(channel: CurveChannel): List<CurvePoint> = when (channel) {
+                  CurveChannel.MASTER -> masterCurve
+                  CurveChannel.RED -> redCurve
+                  CurveChannel.GREEN -> greenCurve
+                  CurveChannel.BLUE -> blueCurve
+              }
+
+              fun withCurve(channel: CurveChannel, points: List<CurvePoint>): EditParams {
+                  val sorted = points.sortedBy { it.x }.toMutableList()
+                  if (sorted.first().x > 0f) sorted.add(0, CurvePoint(0f, sorted.first().y))
+                  if (sorted.last().x < 1f) sorted.add(CurvePoint(1f, sorted.last().y))
+                  val clean = sorted.map {
+                      CurvePoint(it.x.coerceIn(0f, 1f), it.y.coerceIn(0f, 1f))
+                  }
+                  return when (channel) {
+                      CurveChannel.MASTER -> copy(masterCurve = clean)
+                      CurveChannel.RED -> copy(redCurve = clean)
+                      CurveChannel.GREEN -> copy(greenCurve = clean)
+                      CurveChannel.BLUE -> copy(blueCurve = clean)
+                  }
+              }
+
+              fun buildLut256(): FloatArray {
+                  val lut = FloatArray(256 * 4)
+                  val m = sampleSpline256(masterCurve)
+                  val r = sampleSpline256(redCurve)
+                  val g = sampleSpline256(greenCurve)
+                  val b = sampleSpline256(blueCurve)
+                  for (i in 0 until 256) {
+                      val ri = ((r[i] * 255f).toInt().coerceIn(0, 255))
+                      val gi = ((g[i] * 255f).toInt().coerceIn(0, 255))
+                      val bi = ((b[i] * 255f).toInt().coerceIn(0, 255))
+                      lut[i * 4 + 0] = m[ri]
+                      lut[i * 4 + 1] = m[gi]
+                      lut[i * 4 + 2] = m[bi]
+                      lut[i * 4 + 3] = 1f
+                  }
+                  return lut
+              }
+
+              private fun sampleSpline256(pts: List<CurvePoint>): FloatArray {
+                  val out = FloatArray(256)
+                  val p = pts.sortedBy { it.x }
+                  if (p.size < 2) {
+                      for (i in 0 until 256) out[i] = i / 255f
+                      return out
+                  }
+                  for (i in 0 until 256) {
+                      val x = i / 255f
+                      var seg = 0
+                      while (seg < p.size - 2 && x > p[seg + 1].x) {
+                          seg++
+                      }
+                      val p0 = p[(seg - 1).coerceAtLeast(0)]
+                      val p1 = p[seg]
+                      val p2 = p[seg + 1]
+                      val p3 = p[(seg + 2).coerceAtMost(p.size - 1)]
+                      val span = (p2.x - p1.x).coerceAtLeast(0.0001f)
+                      val t = ((x - p1.x) / span).coerceIn(0f, 1f)
+                      val t2 = t * t
+                      val t3 = t2 * t
+                      val y = 0.5f * (
+                          (2f * p1.y) +
+                              (-p0.y + p2.y) * t +
+                              (2f * p0.y - 5f * p1.y + 4f * p2.y - p3.y) * t2 +
+                              (-p0.y + 3f * p1.y - 3f * p2.y + p3.y) * t3
+                          )
+                      out[i] = y.coerceIn(0f, 1f)
+                  }
+                  return out
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/studio/galleryeditor/MediaRepository.kt
+          package com.studio.galleryeditor
+
+          import android.content.ContentUris
+          import android.content.ContentValues
+          import android.content.Context
+          import android.graphics.Bitmap
+          import android.graphics.BitmapFactory
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Environment
+          import android.provider.MediaStore
+          import androidx.exifinterface.media.ExifInterface
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+          import java.io.File
+          import java.io.FileOutputStream
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+          import kotlin.math.roundToInt
+
+          class MediaRepository(private val context: Context) {
+
+              private val prefs = context.getSharedPreferences("gallery_pro_prefs", Context.MODE_PRIVATE)
+
+              fun isGpsMetadataEnabled(): Boolean {
+                  // Supports both internal preference and external camera setting toggle
+                  return prefs.getBoolean("show_gps_metadata", true)
+              }
+
+              fun setGpsMetadataEnabled(enabled: Boolean) {
+                  prefs.edit().putBoolean("show_gps_metadata", enabled).apply()
+              }
+
+              fun isFavorite(uriString: String): Boolean {
+                  val favs = prefs.getStringSet("favorites", emptySet()) ?: emptySet()
+                  return favs.contains(uriString)
+              }
+
+              fun toggleFavorite(uriString: String): Boolean {
+                  val current = (prefs.getStringSet("favorites", emptySet()) ?: emptySet()).toMutableSet()
+                  val nowFav = if (current.contains(uriString)) {
+                      current.remove(uriString)
+                      false
+                  } else {
+                      current.add(uriString)
+                      true
+                  }
+                  prefs.edit().putStringSet("favorites", current).apply()
+                  return nowFav
+              }
+
+              suspend fun loadRecentImages(limit: Int = 500): List<MediaItem> = withContext(Dispatchers.IO) {
+                  val items = mutableListOf<MediaItem>()
+                  val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                  } else {
+                      MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                  }
+
+                  val projection = arrayOf(
+                      MediaStore.Images.Media._ID,
+                      MediaStore.Images.Media.DISPLAY_NAME,
+                      MediaStore.Images.Media.MIME_TYPE,
+                      MediaStore.Images.Media.SIZE,
+                      MediaStore.Images.Media.WIDTH,
+                      MediaStore.Images.Media.HEIGHT,
+                      MediaStore.Images.Media.DATE_ADDED
+                  )
+
+                  val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+
+                  context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
+                      val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                      val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                      val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+                      val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                      val wCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
+                      val hCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+                      val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+
+                      var count = 0
+                      while (cursor.moveToNext() && count < limit) {
+                          val id = cursor.getLong(idCol)
+                          val uri = ContentUris.withAppendedId(collection, id)
+                          val name = cursor.getString(nameCol) ?: "IMG_$id"
+                          val mime = cursor.getString(mimeCol) ?: "image/jpeg"
+                          val size = cursor.getLong(sizeCol)
+                          val w = cursor.getInt(wCol)
+                          val h = cursor.getInt(hCol)
+                          val dateSec = cursor.getLong(dateCol)
+                          items.add(
+                              MediaItem(
+                                  id = id,
+                                  uri = uri,
+                                  displayName = name,
+                                  mimeType = mime,
+                                  sizeBytes = size,
+                                  width = w,
+                                  height = h,
+                                  dateAddedSec = dateSec,
+                                  isFavorite = isFavorite(uri.toString())
+                              )
+                          )
+                          count++
+                      }
+                  }
+                  items
+              }
+
+              suspend fun readMetadata(item: MediaItem, includeGps: Boolean): PhotoMetadata = withContext(Dispatchers.IO) {
+                  var iso: String? = null
+                  var shutter: String? = null
+                  var aperture: String? = null
+                  var focal: String? = null
+                  var cameraModel: String? = null
+                  var lensModel: String? = null
+                  var dateStr = formatEpoch(item.dateAddedSec * 1000L)
+                  var gpsSummary: String? = null
+
+                  try {
+                      context.contentResolver.openInputStream(item.uri)?.use { stream ->
+                          val exif = ExifInterface(stream)
+                          iso = exif.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY)
+                              ?: exif.getAttribute(ExifInterface.TAG_ISO_SPEED_RATINGS)
+                          exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)?.toDoubleOrNull()?.let { exp ->
+                              shutter = if (exp >= 1.0) "${String.format(Locale.US, "%.1f", exp)}s"
+                              else "1/${(1.0 / exp).roundToInt()}s"
+                          }
+                          exif.getAttribute(ExifInterface.TAG_F_NUMBER)?.toDoubleOrNull()?.let { f ->
+                              aperture = "f/${String.format(Locale.US, "%.1f", f)}"
+                          }
+                          exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH)?.let { fl ->
+                              val parts = fl.split("/")
+                              if (parts.size == 2) {
+                                  val num = parts[0].toDoubleOrNull()
+                                  val den = parts[1].toDoubleOrNull()
+                                  if (num != null && den != null && den != 0.0) {
+                                      focal = "${String.format(Locale.US, "%.1f", num / den)} mm"
+                                  }
+                              }
+                          }
+                          cameraModel = listOfNotNull(
+                              exif.getAttribute(ExifInterface.TAG_MAKE)?.trim(),
+                              exif.getAttribute(ExifInterface.TAG_MODEL)?.trim()
+                          ).distinct().joinToString(" ").ifBlank { null }
+                          lensModel = exif.getAttribute(ExifInterface.TAG_LENS_MODEL)?.trim()?.ifBlank { null }
+                          exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)?.let {
+                              dateStr = it
+                          }
+                          if (includeGps) {
+                              val latLong = exif.latLong
+                              if (latLong != null) {
+                                  gpsSummary = "${String.format(Locale.US, "%.5f", latLong[0])}, ${String.format(Locale.US, "%.5f", latLong[1])}"
+                              }
+                          }
+                      }
+                  } catch (_: Exception) {
+                  }
+
+                  val mpText = if (item.width > 0 && item.height > 0) {
+                      val mp = (item.width.toLong() * item.height.toLong()) / 1_000_000.0
+                      "${item.width} x ${item.height} (${String.format(Locale.US, "%.1f", mp)} MP)"
+                  } else {
+                      "Bilinmiyor"
+                  }
+
+                  PhotoMetadata(
+                      fileName = item.displayName,
+                      mimeType = item.mimeType,
+                      dimensions = mpText,
+                      fileSizeFormatted = formatBytes(item.sizeBytes),
+                      dateTaken = dateStr,
+                      cameraModel = cameraModel,
+                      lensModel = lensModel,
+                      iso = iso?.let { "ISO $it" },
+                      shutterSpeed = shutter,
+                      aperture = aperture,
+                      focalLength = focal,
+                      gpsSummary = gpsSummary
+                  )
+              }
+
+              suspend fun decodeBitmapForEdit(uri: Uri, maxDim: Int = 2048): Bitmap? = withContext(Dispatchers.IO) {
+                  try {
+                      val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                      context.contentResolver.openInputStream(uri)?.use {
+                          BitmapFactory.decodeStream(it, null, bounds)
+                      }
+                      var sample = 1
+                      while (bounds.outWidth / sample > maxDim || bounds.outHeight / sample > maxDim) {
+                          sample *= 2
+                      }
+                      val opts = BitmapFactory.Options().apply {
+                          inSampleSize = sample
+                          inPreferredConfig = Bitmap.Config.ARGB_8888
+                      }
+                      context.contentResolver.openInputStream(uri)?.use {
+                          BitmapFactory.decodeStream(it, null, opts)
+                      }
+                  } catch (_: Exception) {
+                      null
+                  }
+              }
+
+              suspend fun saveEditedJpgCopy(original: MediaItem, bitmap: Bitmap): Uri? = withContext(Dispatchers.IO) {
+                  try {
+                      val baseName = original.displayName.substringBeforeLast(".")
+                      val outName = "${baseName}_edit_${System.currentTimeMillis()}.jpg"
+                      val values = ContentValues().apply {
+                          put(MediaStore.Images.Media.DISPLAY_NAME, outName)
+                          put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                              put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/GalleryProEdits")
+                              put(MediaStore.Images.Media.IS_PENDING, 1)
+                          }
+                      }
+                      val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                      val outUri = context.contentResolver.insert(collection, values) ?: return@withContext null
+
+                      context.contentResolver.openOutputStream(outUri)?.use { out ->
+                          bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                      }
+
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                          values.clear()
+                          values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                          context.contentResolver.update(outUri, values, null, null)
+                      }
+                      outUri
+                  } catch (_: Exception) {
+                      null
+                  }
+              }
+
+              suspend fun deleteImage(item: MediaItem): Boolean = withContext(Dispatchers.IO) {
+                  try {
+                      context.contentResolver.delete(item.uri, null, null) > 0
+                  } catch (_: Exception) {
+                      false
+                  }
+              }
+
+              fun prepareShareUri(uri: Uri): Uri? {
+                  return try {
+                      val tempFile = File(context.cacheDir, "share_${System.currentTimeMillis()}.jpg")
+                      context.contentResolver.openInputStream(uri)?.use { input ->
+                          FileOutputStream(tempFile).use { output -> input.copyTo(output) }
+                      }
+                      androidx.core.content.FileProvider.getUriForFile(
+                          context,
+                          "${context.packageName}.fileprovider",
+                          tempFile
+                      )
+                  } catch (_: Exception) {
+                      uri
+                  }
+              }
+
+              private fun formatBytes(bytes: Long): String {
+                  if (bytes <= 0) return "0 KB"
+                  val kb = bytes / 1024.0
+                  val mb = kb / 1024.0
+                  return if (mb >= 1.0) "${String.format(Locale.US, "%.2f", mb)} MB"
+                  else "${String.format(Locale.US, "%.0f", kb)} KB"
+              }
+
+              private fun formatEpoch(millis: Long): String {
+                  return SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(millis))
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/studio/galleryeditor/GlPhotoEngine.kt
+          package com.studio.galleryeditor
+
+          import android.content.Context
+          import android.graphics.Bitmap
+          import android.opengl.EGL14
+          import android.opengl.EGLConfig
+          import android.opengl.EGLContext
+          import android.opengl.EGLDisplay
+          import android.opengl.EGLSurface
+          import android.opengl.GLES20
+          import android.opengl.GLSurfaceView
+          import android.opengl.GLUtils
+          import java.nio.ByteBuffer
+          import java.nio.ByteOrder
+          import java.nio.FloatBuffer
+          import javax.microedition.khronos.egl.EGL10
+          import javax.microedition.khronos.opengles.GL10
+          import kotlin.math.cos
+          import kotlin.math.pow
+          import kotlin.math.sin
+
+          object GlShaders {
+              const val VERTEX_SHADER = """
+                  attribute vec2 aPosition;
+                  attribute vec2 aTexCoord;
+                  varying vec2 vTexCoord;
+                  void main() {
+                      vTexCoord = aTexCoord;
+                      gl_Position = vec4(aPosition, 0.0, 1.0);
+                  }
+              """
+
+              const val FRAGMENT_SHADER = """
+                  precision highp float;
+                  varying vec2 vTexCoord;
+
+                  uniform sampler2D uImage;
+                  uniform sampler2D uLut;
+                  uniform vec2 uTexel;
+
+                  uniform float uExposure;
+                  uniform float uContrast;
+                  uniform float uHighlights;
+                  uniform float uShadows;
+                  uniform float uWhites;
+                  uniform float uBlacks;
+
+                  uniform float uTemp;
+                  uniform float uTint;
+                  uniform float uVibrance;
+                  uniform float uSaturation;
+
+                  uniform float uDehaze;
+                  uniform float uClarity;
+                  uniform float uVignette;
+                  uniform float uGrain;
+                  uniform float uSharpen;
+
+                  uniform vec3 uShadowWheel;
+                  uniform vec3 uMidtoneWheel;
+                  uniform vec3 uHighlightWheel;
+
+                  uniform vec3 uHsl[8];
+
+                  float luma(vec3 c) {
+                      return dot(c, vec3(0.2126, 0.7152, 0.0722));
+                  }
+
+                  vec3 rgb2hsv(vec3 c) {
+                      vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+                      vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+                      vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+                      float d = q.x - min(q.w, q.y);
+                      float e = 1.0e-10;
+                      return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+                  }
+
+                  vec3 hsv2rgb(vec3 c) {
+                      vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+                      vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+                      return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+                  }
+
+                  float hash12(vec2 p) {
+                      vec3 p3  = fract(vec3(p.xyx) * 0.1031);
+                      p3 += dot(p3, p3.yzx + 33.33);
+                      return fract((p3.x + p3.y) * p3.z);
+                  }
+
+                  float bandWeight(float h, float center) {
+                      float diff = abs(h - center);
+                      diff = min(diff, 1.0 - diff);
+                      return smoothstep(0.14, 0.01, diff);
+                  }
+
+                  void main() {
+                      vec3 col = texture2D(uImage, vTexCoord).rgb;
+
+                      // White Balance (Temp / Tint)
+                      col.r += uTemp * 0.14 + uTint * 0.05;
+                      col.g -= uTint * 0.10;
+                      col.b -= uTemp * 0.14 - uTint * 0.05;
+                      col = clamp(col, 0.0, 1.0);
+
+                      // Exposure (EV)
+                      col *= pow(2.0, uExposure);
+
+                      // Highlights, Shadows, Whites, Blacks
+                      float lum = luma(col);
+                      float hiMask = smoothstep(0.45, 1.0, lum);
+                      float shMask = 1.0 - smoothstep(0.0, 0.55, lum);
+                      float whMask = smoothstep(0.75, 1.0, lum);
+                      float blMask = 1.0 - smoothstep(0.0, 0.25, lum);
+
+                      col += col * (uHighlights * 0.45 * hiMask);
+                      col += (1.0 - col) * (uShadows * 0.45 * shMask);
+                      col += uWhites * 0.35 * whMask;
+                      col += uBlacks * 0.35 * blMask;
+                      col = clamp(col, 0.0, 1.0);
+
+                      // Dehaze & Clarity via local contrast approximation
+                      vec3 blur1 = (
+                          texture2D(uImage, vTexCoord + vec2(uTexel.x * 2.0, 0.0)).rgb +
+                          texture2D(uImage, vTexCoord - vec2(uTexel.x * 2.0, 0.0)).rgb +
+                          texture2D(uImage, vTexCoord + vec2(0.0, uTexel.y * 2.0)).rgb +
+                          texture2D(uImage, vTexCoord - vec2(0.0, uTexel.y * 2.0)).rgb
+                      ) * 0.25;
+
+                      float detail = luma(col) - luma(blur1);
+                      col += detail * (uClarity * 0.85 + uSharpen * 1.15);
+
+                      if (abs(uDehaze) > 0.001) {
+                          vec3 dehazed = (col - 0.12 * uDehaze) / max(0.25, 1.0 - 0.35 * uDehaze);
+                          col = mix(col, clamp(dehazed, 0.0, 1.0), abs(uDehaze));
+                      }
+                      col = clamp(col, 0.0, 1.0);
+
+                      // Contrast around mid-grey
+                      col = ((col - 0.5) * (1.0 + uContrast * 0.85)) + 0.5;
+                      col = clamp(col, 0.0, 1.0);
+
+                      // 3-Way Color Wheels
+                      float lNow = luma(col);
+                      float wShadow = 1.0 - smoothstep(0.0, 0.42, lNow);
+                      float wHigh = smoothstep(0.58, 1.0, lNow);
+                      float wMid = max(0.0, 1.0 - wShadow - wHigh);
+
+                      col += uShadowWheel.xy * (0.35 * wShadow) + vec2(uShadowWheel.z * 0.25 * wShadow);
+                      col += uMidtoneWheel.xy * (0.35 * wMid) + vec2(uMidtoneWheel.z * 0.25 * wMid);
+                      col += uHighlightWheel.xy * (0.35 * wHigh) + vec2(uHighlightWheel.z * 0.25 * wHigh);
+                      col = clamp(col, 0.0, 1.0);
+
+                      // HSL 8-band + Vibrance + Saturation
+                      vec3 hsv = rgb2hsv(col);
+                      float centers[8];
+                      centers[0] = 0.0;
+                      centers[1] = 0.083;
+                      centers[2] = 0.166;
+                      centers[3] = 0.333;
+                      centers[4] = 0.500;
+                      centers[5] = 0.666;
+                      centers[6] = 0.780;
+                      centers[7] = 0.888;
+
+                      for (int i = 0; i < 8; i++) {
+                          float w = bandWeight(hsv.x, centers[i]);
+                          if (w > 0.001) {
+                              hsv.x = fract(hsv.x + uHsl[i].x * 0.12 * w);
+                              hsv.y = clamp(hsv.y + uHsl[i].y * 0.65 * w, 0.0, 1.0);
+                              hsv.z = clamp(hsv.z + uHsl[i].z * 0.55 * w, 0.0, 1.0);
+                          }
+                      }
+
+                      // Vibrance protects already saturated pixels
+                      float satBoost = uVibrance * 0.65 * (1.0 - hsv.y * 0.75) + uSaturation * 0.85;
+                      hsv.y = clamp(hsv.y + satBoost, 0.0, 1.0);
+                      col = hsv2rgb(hsv);
+
+                      // Curves LUT (256x1)
+                      float rCurve = texture2D(uLut, vec2(clamp(col.r, 0.0, 1.0), 0.5)).r;
+                      float gCurve = texture2D(uLut, vec2(clamp(col.g, 0.0, 1.0), 0.5)).g;
+                      float bCurve = texture2D(uLut, vec2(clamp(col.b, 0.0, 1.0), 0.5)).b;
+                      col = vec3(rCurve, gCurve, bCurve);
+
+                      // Vignette
+                      if (abs(uVignette) > 0.001) {
+                          vec2 centered = (vTexCoord - 0.5) * 1.4142;
+                          float dist = length(centered);
+                          float vig = smoothstep(0.35, 1.15, dist);
+                          col *= (1.0 - vig * uVignette * 0.65);
+                      }
+
+                      // Film Grain
+                      if (uGrain > 0.001) {
+                          float n = (hash12(gl_FragCoord.xy) - 0.5) * 2.0;
+                          col += n * uGrain * 0.14;
+                      }
+
+                      gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+                  }
+              """
+          }
+
+          private class ShaderProgram(vs: String, fs: String) {
+              val program: Int
+
+              init {
+                  val vShader = compile(GLES20.GL_VERTEX_SHADER, vs)
+                  val fShader = compile(GLES20.GL_FRAGMENT_SHADER, fs)
+                  program = GLES20.glCreateProgram().also {
+                      GLES20.glAttachShader(it, vShader)
+                      GLES20.glAttachShader(it, fShader)
+                      GLES20.glLinkProgram(it)
+                  }
+              }
+
+              private fun compile(type: Int, src: String): Int {
+                  return GLES20.glCreateShader(type).also {
+                      GLES20.glShaderSource(it, src)
+                      GLES20.glCompileShader(it)
+                  }
+              }
+
+              fun applyUniforms(params: EditParams, showOriginal: Boolean, texWidth: Int, texHeight: Int) {
+                  GLES20.glUseProgram(program)
+                  val p = if (showOriginal) EditParams() else params
+
+                  GLES20.glUniform2f(
+                      GLES20.glGetUniformLocation(program, "uTexel"),
+                      1f / texWidth.coerceAtLeast(1),
+                      1f / texHeight.coerceAtLeast(1)
+                  )
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uExposure"), p.exposure)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uContrast"), p.contrast)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uHighlights"), p.highlights)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uShadows"), p.shadows)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uWhites"), p.whites)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uBlacks"), p.blacks)
+
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uTemp"), p.temp)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uTint"), p.tint)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uVibrance"), p.vibrance)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uSaturation"), p.saturation)
+
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uDehaze"), p.dehaze)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uClarity"), p.clarity)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uVignette"), p.vignette)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uGrain"), p.grain)
+                  GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uSharpen"), p.sharpen)
+
+                  fun wheelVec(w: ColorWheelOffset): FloatArray {
+                      val rad = Math.toRadians(w.hueAngleDeg.toDouble())
+                      val x = (cos(rad) * w.strength).toFloat()
+                      val y = (sin(rad) * w.strength).toFloat()
+                      return floatArrayOf(x, y, w.luminance)
+                  }
+
+                  val sw = wheelVec(p.shadowWheel)
+                  val mw = wheelVec(p.midtoneWheel)
+                  val hw = wheelVec(p.highlightWheel)
+                  GLES20.glUniform3f(GLES20.glGetUniformLocation(program, "uShadowWheel"), sw[0], sw[1], sw[2])
+                  GLES20.glUniform3f(GLES20.glGetUniformLocation(program, "uMidtoneWheel"), mw[0], mw[1], mw[2])
+                  GLES20.glUniform3f(GLES20.glGetUniformLocation(program, "uHighlightWheel"), hw[0], hw[1], hw[2])
+
+                  val hslArray = FloatArray(8 * 3)
+                  p.hslBands.take(8).forEachIndexed { idx, band ->
+                      hslArray[idx * 3 + 0] = band.hue
+                      hslArray[idx * 3 + 1] = band.saturation
+                      hslArray[idx * 3 + 2] = band.luminance
+                  }
+                  GLES20.glUniform3fv(GLES20.glGetUniformLocation(program, "uHsl"), 8, hslArray, 0)
+              }
+          }
+
+          class PhotoGlSurfaceView(context: Context) : GLSurfaceView(context) {
+              private val renderer = PreviewRenderer()
+
+              init {
+                  setEGLContextClientVersion(2)
+                  setRenderer(renderer)
+                  renderMode = RENDERMODE_WHEN_DIRTY
+              }
+
+              fun setBitmap(bitmap: Bitmap?) {
+                  renderer.pendingBitmap = bitmap
+                  requestRender()
+              }
+
+              fun updateParams(params: EditParams, showOriginal: Boolean = false) {
+                  renderer.params = params
+                  renderer.showOriginal = showOriginal
+                  requestRender()
+              }
+
+              private class PreviewRenderer : Renderer {
+                  @Volatile var pendingBitmap: Bitmap? = null
+                  @Volatile var params: EditParams = EditParams()
+                  @Volatile var showOriginal: Boolean = false
+
+                  private var shader: ShaderProgram? = null
+                  private var imageTexId = 0
+                  private var lutTexId = 0
+                  private var imgW = 1
+                  private var imgH = 1
+                  private var surfaceW = 1
+                  private var surfaceH = 1
+
+                  private val quadCoords = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+                      put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
+                      position(0)
+                  }
+                  private val texCoords = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+                      put(floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f))
+                      position(0)
+                  }
+
+                  override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+                      GLES20.glClearColor(0.05f, 0.05f, 0.06f, 1f)
+                      shader = ShaderProgram(GlShaders.VERTEX_SHADER, GlShaders.FRAGMENT_SHADER)
+                      imageTexId = createTexture()
+                      lutTexId = createTexture()
+                  }
+
+                  override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+                      surfaceW = width.coerceAtLeast(1)
+                      surfaceH = height.coerceAtLeast(1)
+                      GLES20.glViewport(0, 0, surfaceW, surfaceH)
+                  }
+
+                  override fun onDrawFrame(gl: GL10?) {
+                      GLES20.glClear(GLES20.glCOLOR_BUFFER_BIT)
+                      val sp = shader ?: return
+
+                      pendingBitmap?.let { bmp ->
+                          if (!bmp.isRecycled) {
+                              imgW = bmp.width
+                              imgH = bmp.height
+                              GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, imageTexId)
+                              GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0)
+                          }
+                          pendingBitmap = null
+                      }
+
+                      // Aspect-fit viewport inside surface
+                      val viewAspect = surfaceW.toFloat() / surfaceH.toFloat()
+                      val imgAspect = imgW.toFloat() / imgH.toFloat().coerceAtLeast(0.01f)
+                      var vpW = surfaceW
+                      var vpH = surfaceH
+                      if (imgAspect > viewAspect) {
+                          vpH = (surfaceW / imgAspect).toInt().coerceAtLeast(1)
+                      } else {
+                          vpW = (surfaceH * imgAspect).toInt().coerceAtLeast(1)
+                      }
+                      val vpX = (surfaceW - vpW) / 2
+                      val vpY = (surfaceH - vpH) / 2
+                      GLES20.glViewport(vpX, vpY, vpW, vpH)
+
+                      // Upload LUT
+                      val lutFloats = (if (showOriginal) EditParams() else params).buildLut256()
+                      val lutBuf = ByteBuffer.allocateDirect(256 * 4).order(ByteOrder.nativeOrder())
+                      for (i in 0 until 256) {
+                          lutBuf.put(((lutFloats[i * 4 + 0] * 255f).toInt().coerceIn(0, 255)).toByte())
+                          lutBuf.put(((lutFloats[i * 4 + 1] * 255f).toInt().coerceIn(0, 255)).toByte())
+                          lutBuf.put(((lutFloats[i * 4 + 2] * 255f).toInt().coerceIn(0, 255)).toByte())
+                          lutBuf.put(255.toByte())
+                      }
+                      lutBuf.position(0)
+                      GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+                      GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTexId)
+                      GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 256, 1, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, lutBuf)
+
+                      GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                      GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, imageTexId)
+
+                      sp.applyUniforms(params, showOriginal, imgW, imgH)
+                      GLES20.glUniform1i(GLES20.glGetUniformLocation(sp.program, "uImage"), 0)
+                      GLES20.glUniform1i(GLES20.glGetUniformLocation(sp.program, "uLut"), 1)
+
+                      val posLoc = GLES20.glGetAttribLocation(sp.program, "aPosition")
+                      val texLoc = GLES20.glGetAttribLocation(sp.program, "aTexCoord")
+                      GLES20.glEnableVertexAttribArray(posLoc)
+                      GLES20.glEnableVertexAttribArray(texLoc)
+                      GLES20.glVertexAttribPointer(posLoc, 2, GLES20.GL_FLOAT, false, 0, quadCoords)
+                      GLES20.glVertexAttribPointer(texLoc, 2, GLES20.GL_FLOAT, false, 0, texCoords)
+
+                      GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+
+                      GLES20.glDisableVertexAttribArray(posLoc)
+                      GLES20.glDisableVertexAttribArray(texLoc)
+                  }
+
+                  private fun createTexture(): Int {
+                      val ids = IntArray(1)
+                      GLES20.glGenTextures(1, ids, 0)
+                      GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
+                      GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                      GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                      GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                      GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                      return ids[0]
+                  }
+              }
+          }
+
+          fun renderBitmapOffscreen(source: Bitmap, params: EditParams): Bitmap {
+              val w = source.width
+              val h = source.height
+              val eglDisplay: EGLDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+              EGL14.eglInitialize(eglDisplay, IntArray(2), 0, IntArray(2), 0)
+              val configs = arrayOfNulls<EGLConfig>(1)
+              val numConfigs = IntArray(1)
+              val cfgAttrs = intArrayOf(
+                  EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                  EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                  EGL14.EGL_NONE
+              )
+              EGL14.eglChooseConfig(eglDisplay, cfgAttrs, 0, configs, 0, 1, numConfigs, 0)
+              val ctxAttrs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+              val eglCtx: EGLContext = EGL14.eglCreateContext(eglDisplay, configs[0], EGL14.EGL_NO_CONTEXT, ctxAttrs, 0)
+              val surfAttrs = intArrayOf(EGL14.EGL_WIDTH, w, EGL14.EGL_HEIGHT, h, EGL14.EGL_NONE)
+              val eglSurf: EGLSurface = EGL14.eglCreatePbufferSurface(eglDisplay, configs[0], surfAttrs, 0)
+              EGL14.eglMakeCurrent(eglDisplay, eglSurf, eglSurf, eglCtx)
+
+              val fbo = IntArray(1)
+              GLES20.glGenFramebuffers(1, fbo, 0)
+              GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0])
+
+              val outTex = IntArray(1)
+              GLES20.glGenTextures(1, outTex, 0)
+              GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, outTex[0])
+              GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+              GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+              GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+              GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, outTex[0], 0)
+
+              val sp = ShaderProgram(GlShaders.VERTEX_SHADER, GlShaders.FRAGMENT_SHADER)
+              val imgTex = IntArray(1)
+              GLES20.glGenTextures(1, imgTex, 0)
+              GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+              GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, imgTex[0])
+              GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+              GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+              GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+              GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+              GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, source, 0)
+
+              val lutFloats = params.buildLut256()
+              val lutBuf = ByteBuffer.allocateDirect(256 * 4).order(ByteOrder.nativeOrder())
+              for (i in 0 until 256) {
+                  lutBuf.put(((lutFloats[i * 4 + 0] * 255f).toInt().coerceIn(0, 255)).toByte())
+                  lutBuf.put(((lutFloats[i * 4 + 1] * 255f).toInt().coerceIn(0, 255)).toByte())
+                  lutBuf.put(((lutFloats[i * 4 + 2] * 255f).toInt().coerceIn(0, 255)).toByte())
+                  lutBuf.put(255.toByte())
+              }
+              lutBuf.position(0)
+              val lutTex = IntArray(1)
+              GLES20.glGenTextures(1, lutTex, 0)
+              GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+              GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTex[0])
+              GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+              GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+              GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 256, 1, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, lutBuf)
+
+              GLES20.glViewport(0, 0, w, h)
+              sp.applyUniforms(params, false, w, h)
+              GLES20.glUniform1i(GLES20.glGetUniformLocation(sp.program, "uImage"), 0)
+              GLES20.glUniform1i(GLES20.glGetUniformLocation(sp.program, "uLut"), 1)
+
+              val quad = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+                  put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
+                  position(0)
+              }
+              val tex = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+                  put(floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f))
+                  position(0)
+              }
+              val posLoc = GLES20.glGetAttribLocation(sp.program, "aPosition")
+              val texLoc = GLES20.glGetAttribLocation(sp.program, "aTexCoord")
+              GLES20.glEnableVertexAttribArray(posLoc)
+              GLES20.glEnableVertexAttribArray(texLoc)
+              GLES20.glVertexAttribPointer(posLoc, 2, GLES20.GL_FLOAT, false, 0, quad)
+              GLES20.glVertexAttribPointer(texLoc, 2, GLES20.GL_FLOAT, false, 0, tex)
+              GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+
+              val pixelBuf = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
+              GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixelBuf)
+              pixelBuf.position(0)
+
+              val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+              result.copyPixelsFromBuffer(pixelBuf)
+
+              GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+              GLES20.glDeleteTextures(3, intArrayOf(outTex[0], imgTex[0], lutTex[0]), 0)
+              GLES20.glDeleteFramebuffers(1, fbo, 0)
+              EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+              EGL14.eglDestroySurface(eglDisplay, eglSurf)
+              EGL14.eglDestroyContext(eglDisplay, eglCtx)
+              EGL14.eglTerminate(eglDisplay)
+
+              return result
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/studio/galleryeditor/MainActivity.kt
+          package com.studio.galleryeditor
+
+          import android.Manifest
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.graphics.Bitmap
+          import android.os.Build
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.BackHandler
+          import androidx.activity.compose.rememberLauncherForActivityResult
+          import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.compose.foundation.Canvas
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.gestures.detectDragGestures
+          import androidx.compose.foundation.gestures.detectTapGestures
+          import androidx.compose.foundation.gestures.detectVerticalDragGestures
+          import androidx.compose.foundation.horizontalScroll
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyRow
+          import androidx.compose.foundation.lazy.grid.GridCells
+          import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+          import androidx.compose.foundation.lazy.grid.itemsIndexed
+          import androidx.compose.foundation.pager.HorizontalPager
+          import androidx.compose.foundation.pager.rememberPagerState
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.*
+          import androidx.compose.material.icons.outlined.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.geometry.Offset
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.graphics.Path
+          import androidx.compose.ui.graphics.drawscope.Stroke
+          import androidx.compose.ui.input.pointer.pointerInput
+          import androidx.compose.ui.layout.ContentScale
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import androidx.compose.ui.viewinterop.AndroidView
+          import androidx.core.content.ContextCompat
+          import coil.compose.AsyncImage
+          import kotlinx.coroutines.launch
+          import kotlin.math.atan2
+          import kotlin.math.cos
+          import kotlin.math.hypot
+          import kotlin.math.roundToInt
+          import kotlin.math.sin
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val repo = MediaRepository(this)
+                  val gpsFromIntent = intent?.getBooleanExtra("show_gps_metadata", repo.isGpsMetadataEnabled())
+                      ?: repo.isGpsMetadataEnabled()
+                  repo.setGpsMetadataEnabled(gpsFromIntent)
+
+                  setContent {
+                      MaterialTheme(
+                          colorScheme = darkColorScheme(
+                              background = Color(0xFF0A0B0D),
+                              surface = Color(0xFF121418),
+                              primary = Color(0xFFE5A93C),
+                              onBackground = Color(0xFFF3F4F6),
+                              onSurface = Color(0xFFF3F4F6)
+                          )
+                      ) {
+                          GalleryProApp(repo = repo)
+                      }
+                  }
+              }
+          }
+
+          @OptIn(ExperimentalMaterial3Api::class)
+          @Composable
+          private fun GalleryProApp(repo: MediaRepository) {
+              val context = LocalContext.current
+              val scope = rememberCoroutineScope()
+
+              var items by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+              var selectedIndex by remember { mutableStateOf<Int?>(null) }
+              var editingItem by remember { mutableStateOf<MediaItem?>(null) }
+              var showGpsSetting by remember { mutableStateOf(repo.isGpsMetadataEnabled()) }
+
+              val permissions = remember {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                      arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+                  } else {
+                      arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                  }
+              }
+
+              var hasMediaPermission by remember {
+                  mutableStateOf(
+                      permissions.all {
+                          ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+                      }
+                  )
+              }
+
+              val permLauncher = rememberLauncherForActivityResult(
+                  ActivityResultContracts.RequestMultiplePermissions()
+              ) { res ->
+                  hasMediaPermission = res.values.all { it }
+                  if (hasMediaPermission) {
+                      scope.launch { items = repo.loadRecentImages() }
+                  }
+              }
+
+              LaunchedEffect(hasMediaPermission) {
+                  if (hasMediaPermission) {
+                      items = repo.loadRecentImages()
+                  } else {
+                      permLauncher.launch(permissions)
+                  }
+              }
+
+              Scaffold(
+                  containerColor = Color(0xFF0A0B0D)
+              ) { innerPadding ->
+                  Box(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .padding(innerPadding)
+                  ) {
+                      when {
+                          editingItem != null -> {
+                              ProColorEditorScreen(
+                                  item = editingItem!!,
+                                  repo = repo,
+                                  onClose = { savedUri ->
+                                      editingItem = null
+                                      scope.launch {
+                                          items = repo.loadRecentImages()
+                                          if (savedUri != null) {
+                                              val idx = items.indexOfFirst { it.uri == savedUri }
+                                              if (idx >= 0) selectedIndex = idx
+                                          }
+                                      }
+                                  }
+                              )
+                          }
+                          selectedIndex != null && items.isNotEmpty() -> {
+                              PhotoPagerViewerScreen(
+                                  items = items,
+                                  initialIndex = selectedIndex!!.coerceIn(0, items.lastIndex),
+                                  showGpsMetadata = showGpsSetting,
+                                  repo = repo,
+                                  onBackToGrid = { selectedIndex = null },
+                                  onEditPhoto = { target -> editingItem = target },
+                                  onItemsChanged = { updated -> items = updated }
+                              )
+                          }
+                          else -> {
+                              MinimalGalleryGridScreen(
+                                  items = items,
+                                  showGpsSetting = showGpsSetting,
+                                  onToggleGpsSetting = { enabled ->
+                                      showGpsSetting = enabled
+                                      repo.setGpsMetadataEnabled(enabled)
+                                  },
+                                  onRefresh = {
+                                      scope.launch { items = repo.loadRecentImages() }
+                                  },
+                                  onOpenPhoto = { idx -> selectedIndex = idx }
+                              )
+                          }
+                      }
+                  }
+              }
+          }
+
+          @OptIn(ExperimentalMaterial3Api::class)
+          @Composable
+          private fun MinimalGalleryGridScreen(
+              items: List<MediaItem>,
+              showGpsSetting: Boolean,
+              onToggleGpsSetting: (Boolean) -> Unit,
+              onRefresh: () -> Unit,
+              onOpenPhoto: (Int) -> Unit
+          ) {
+              var onlyFavorites by remember { mutableStateOf(false) }
+              var showSettingsDialog by remember { mutableStateOf(false) }
+              val visibleItems = remember(items, onlyFavorites) {
+                  if (onlyFavorites) items.filter { it.isFavorite } else items
+              }
+
+              Column(modifier = Modifier.fillMaxSize()) {
+                  TopAppBar(
+                      title = {
+                          Text(
+                              text = if (onlyFavorites) "Favoriler" else "Galeri",
+                              fontWeight = FontWeight.SemiBold,
+                              fontSize = 20.sp
+                          )
+                      },
+                      actions = {
+                          IconButton(onClick = { onlyFavorites = !onlyFavorites }) {
+                              Icon(
+                                  imageVector = if (onlyFavorites) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                  contentDescription = "Favoriler",
+                                  tint = if (onlyFavorites) Color(0xFFE5A93C) else Color(0xFFF3F4F6)
+                              )
+                          }
+                          IconButton(onClick = onRefresh) {
+                              Icon(Icons.Filled.Refresh, contentDescription = "Yenile")
+                          }
+                          IconButton(onClick = { showSettingsDialog = true }) {
+                              Icon(Icons.Outlined.Tune, contentDescription = "Ayarlar")
+                          }
+                      },
+                      colors = TopAppBarDefaults.topAppBarColors(
+                          containerColor = Color(0xFF0A0B0D),
+                          titleContentColor = Color(0xFFF3F4F6)
+                      )
+                  )
+
+                  if (visibleItems.isEmpty()) {
+                      Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                          Text("Gösterilecek fotoğraf bulunamadı", color = Color(0xFF9CA3AF))
+                      }
+                  } else {
+                      LazyVerticalGrid(
+                          columns = GridCells.Fixed(3),
+                          horizontalArrangement = Arrangement.spacedBy(2.dp),
+                          verticalArrangement = Arrangement.spacedBy(2.dp),
+                          modifier = Modifier.fillMaxSize()
+                      ) {
+                          itemsIndexed(visibleItems, key = { _, it -> it.uri.toString() }) { _, item ->
+                              val realIndex = items.indexOfFirst { it.uri == item.uri }.coerceAtLeast(0)
+                              Box(
+                                  modifier = Modifier
+                                      .aspectRatio(1f)
+                                      .clickable { onOpenPhoto(realIndex) }
+                              ) {
+                                  AsyncImage(
+                                      model = item.uri,
+                                      contentDescription = item.displayName,
+                                      contentScale = ContentScale.Crop,
+                                      modifier = Modifier.fillMaxSize()
+                                  )
+                                  if (item.isFavorite) {
+                                      Icon(
+                                          imageVector = Icons.Filled.Favorite,
+                                          contentDescription = null,
+                                          tint = Color(0xFFE5A93C),
+                                          modifier = Modifier
+                                              .align(Alignment.BottomEnd)
+                                              .padding(6.dp)
+                                              .size(16.dp)
+                                      )
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+
+              if (showSettingsDialog) {
+                  AlertDialog(
+                      onDismissRequest = { showSettingsDialog = false },
+                      title = { Text("Galeri & Meta Veri Ayarı") },
+                      text = {
+                          Row(
+                              modifier = Modifier.fillMaxWidth(),
+                              verticalAlignment = Alignment.CenterVertically,
+                              horizontalArrangement = Arrangement.SpaceBetween
+                          ) {
+                              Column(modifier = Modifier.weight(1f)) {
+                                  Text("Konum (GPS) Bilgisini Göster", fontWeight = FontWeight.Medium)
+                                  Text(
+                                      "Yukarı kaydırılan detay panelinde koordinat görünsün",
+                                      fontSize = 12.sp,
+                                      color = Color(0xFF9CA3AF)
+                                  )
+                              }
+                              Switch(checked = showGpsSetting, onCheckedChange = onToggleGpsSetting)
+                          }
+                      },
+                      confirmButton = {
+                          TextButton(onClick = { showSettingsDialog = false }) {
+                              Text("Tamam")
+                          }
+                      }
+                  )
+              }
+          }
+
+          @OptIn(ExperimentalMaterial3Api::class)
+          @Composable
+          private fun PhotoPagerViewerScreen(
+              items: List<MediaItem>,
+              initialIndex: Int,
+              showGpsMetadata: Boolean,
+              repo: MediaRepository,
+              onBackToGrid: () -> Unit,
+              onEditPhoto: (MediaItem) -> Unit,
+              onItemsChanged: (List<MediaItem>) -> Unit
+          ) {
+              val context = LocalContext.current
+              val scope = rememberCoroutineScope()
+              val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { items.size })
+              val currentItem = items.getOrNull(pagerState.currentPage) ?: return
+
+              var showMetaSheet by remember { mutableStateOf(false) }
+              var metadata by remember { mutableStateOf<PhotoMetadata?>(null) }
+              var chromeVisible by remember { mutableStateOf(true) }
+
+              LaunchedEffect(currentItem.uri, showMetaSheet, showGpsMetadata) {
+                  if (showMetaSheet) {
+                      metadata = repo.readMetadata(currentItem, includeGps = showGpsMetadata)
+                  }
+              }
+
+              Box(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .background(Color.Black)
+                      .pointerInput(currentItem.uri) {
+                          detectVerticalDragGestures { _, dragAmount ->
+                              if (dragAmount < -35f) {
+                                  showMetaSheet = true
+                              } else if (dragAmount > 35f && showMetaSheet) {
+                                  showMetaSheet = false
+                              }
+                          }
+                      }
+              ) {
+                  HorizontalPager(
+                      state = pagerState,
+                      modifier = Modifier.fillMaxSize()
+                  ) { page ->
+                      val pageItem = items[page]
+                      Box(
+                          modifier = Modifier
+                              .fillMaxSize()
+                              .clickable { chromeVisible = !chromeVisible },
+                          contentAlignment = Alignment.Center
+                      ) {
+                          AsyncImage(
+                              model = pageItem.uri,
+                              contentDescription = pageItem.displayName,
+                              contentScale = ContentScale.Fit,
+                              modifier = Modifier.fillMaxSize()
+                          )
+                      }
+                  }
+
+                  if (chromeVisible) {
+                      Row(
+                          modifier = Modifier
+                              .fillMaxWidth()
+                              .align(Alignment.TopCenter)
+                              .background(Color(0x88000000))
+                              .padding(horizontal = 8.dp, vertical = 8.dp),
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.SpaceBetween
+                      ) {
+                          IconButton(onClick = onBackToGrid) {
+                              Icon(Icons.Filled.ArrowBack, contentDescription = "Geri", tint = Color.White)
+                          }
+                          Text(
+                              text = "${pagerState.currentPage + 1} / ${items.size}",
+                              color = Color.White,
+                              fontSize = 14.sp
+                          )
+                          IconButton(onClick = { showMetaSheet = true }) {
+                              Icon(Icons.Outlined.Info, contentDescription = "Bilgi", tint = Color.White)
+                          }
+                      }
+
+                      Row(
+                          modifier = Modifier
+                              .fillMaxWidth()
+                              .align(Alignment.BottomCenter)
+                              .background(Color(0xAA0A0B0D))
+                              .padding(horizontal = 16.dp, vertical = 10.dp),
+                          horizontalArrangement = Arrangement.SpaceAround,
+                          verticalAlignment = Alignment.CenterVertically
+                      ) {
+                          IconButton(onClick = {
+                              val nowFav = repo.toggleFavorite(currentItem.uri.toString())
+                              val updated = items.map {
+                                  if (it.uri == currentItem.uri) it.copy(isFavorite = nowFav) else it
+                              }
+                              onItemsChanged(updated)
+                          }) {
+                              Icon(
+                                  imageVector = if (currentItem.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                  contentDescription = "Favori",
+                                  tint = if (currentItem.isFavorite) Color(0xFFE5A93C) else Color.White
+                              )
+                          }
+
+                          Button(
+                              onClick = { onEditPhoto(currentItem) },
+                              colors = ButtonDefaults.buttonColors(
+                                  containerColor = Color(0xFFE5A93C),
+                                  contentColor = Color.Black
+                              )
+                          ) {
+                              Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                              Spacer(Modifier.width(6.dp))
+                              Text("Düzenle", fontWeight = FontWeight.SemiBold)
+                          }
+
+                          IconButton(onClick = {
+                              val shareUri = repo.prepareShareUri(currentItem.uri) ?: currentItem.uri
+                              val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                  type = "image/*"
+                                  putExtra(Intent.EXTRA_STREAM, shareUri)
+                                  addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                              }
+                              context.startActivity(Intent.createChooser(sendIntent, "Paylaş"))
+                          }) {
+                              Icon(Icons.Filled.Share, contentDescription = "Paylaş", tint = Color.White)
+                          }
+
+                          IconButton(onClick = {
+                              scope.launch {
+                                  if (repo.deleteImage(currentItem)) {
+                                      val nextList = items.filterNot { it.uri == currentItem.uri }
+                                      onItemsChanged(nextList)
+                                      if (nextList.isEmpty()) onBackToGrid()
+                                  }
+                              }
+                          }) {
+                              Icon(Icons.Outlined.Delete, contentDescription = "Sil", tint = Color(0xFFF87171))
+                          }
+                      }
+                  }
+
+                  if (showMetaSheet) {
+                      ModalBottomSheet(
+                          onDismissRequest = { showMetaSheet = false },
+                          containerColor = Color(0xFF14171D),
+                          contentColor = Color(0xFFF3F4F6)
+                      ) {
+                          val meta = metadata
+                          Column(
+                              modifier = Modifier
+                                  .fillMaxWidth()
+                                  .padding(horizontal = 20.dp, vertical = 8.dp)
+                                  .padding(bottom = 24.dp),
+                              verticalArrangement = Arrangement.spacedBy(8.dp)
+                          ) {
+                              Text("Fotoğraf Detayları", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                              HorizontalDivider(color = Color(0xFF262B35))
+                              if (meta == null) {
+                                  CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                              } else {
+                                  MetaRow("Dosya", meta.fileName)
+                                  MetaRow("Çözünürlük", meta.dimensions)
+                                  MetaRow("Boyut", meta.fileSizeFormatted)
+                                  MetaRow("Tarih", meta.dateTaken)
+                                  MetaRow("Tür", meta.mimeType)
+                                  meta.cameraModel?.let { MetaRow("Kamera", it) }
+                                  meta.lensModel?.let { MetaRow("Lens", it) }
+                                  val shotLine = listOfNotNull(meta.focalLength, meta.aperture, meta.shutterSpeed, meta.iso)
+                                      .joinToString(" • ")
+                                  if (shotLine.isNotBlank()) MetaRow("Çekim", shotLine)
+                                  if (showGpsMetadata && meta.gpsSummary != null) {
+                                      MetaRow("Konum", meta.gpsSummary)
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          private fun MetaRow(label: String, value: String) {
+              Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween
+              ) {
+                  Text(label, color = Color(0xFF9CA3AF), fontSize = 13.sp)
+                  Text(value, color = Color(0xFFF3F4F6), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+              }
+          }
+
+          @Composable
+          private fun ProColorEditorScreen(
+              item: MediaItem,
+              repo: MediaRepository,
+              onClose: (android.net.Uri?) -> Unit
+          ) {
+              val scope = rememberCoroutineScope()
+              var sourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
+              var params by remember { mutableStateOf(EditParams()) }
+              var showOriginal by remember { mutableStateOf(false) }
+              var showUnsavedDialog by remember { mutableStateOf(false) }
+              var isSaving by remember { mutableStateOf(false) }
+
+              var activeTab by remember { mutableStateOf(0) } // 0: Işık, 1: Renk, 2: Eğri, 3: Teker, 4: Efekt
+              var activeChannel by remember { mutableStateOf(CurveChannel.MASTER) }
+              var activeWheel by remember { mutableStateOf(0) } // 0: Gölgeler, 1: Orta Tonlar, 2: Aydınlıklar
+              var activeHslIndex by remember { mutableStateOf(0) }
+
+              var glViewRef by remember { mutableStateOf<PhotoGlSurfaceView?>(null) }
+
+              LaunchedEffect(item.uri) {
+                  val bmp = repo.decodeBitmapForEdit(item.uri, maxDim = 2048)
+                  sourceBitmap = bmp
+                  glViewRef?.setBitmap(bmp)
+              }
+
+              LaunchedEffect(params, showOriginal, sourceBitmap) {
+                  glViewRef?.updateParams(params, showOriginal)
+              }
+
+              fun requestExit() {
+                  if (params.isModified()) showUnsavedDialog = true else onClose(null)
+              }
+
+              fun saveCopy() {
+                  val src = sourceBitmap ?: return
+                  if (isSaving) return
+                  isSaving = true
+                  scope.launch {
+                      val rendered = renderBitmapOffscreen(src, params)
+                      val savedUri = repo.saveEditedJpgCopy(item, rendered)
+                      isSaving = false
+                      onClose(savedUri)
+                  }
+              }
+
+              BackHandler { requestExit() }
+
+              Column(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .background(Color(0xFF0A0B0D))
+              ) {
+                  // Top Bar
+                  Row(
+                      modifier = Modifier
+                          .fillMaxWidth()
+                          .padding(horizontal = 8.dp, vertical = 6.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.SpaceBetween
+                  ) {
+                      IconButton(onClick = { requestExit() }) {
+                          Icon(Icons.Filled.Close, contentDescription = "Kapat", tint = Color.White)
+                      }
+
+                      Row(verticalAlignment = Alignment.CenterVertically) {
+                          IconButton(
+                              onClick = {},
+                              modifier = Modifier.pointerInput(Unit) {
+                                  detectTapGestures(
+                                      onPress = {
+                                          showOriginal = true
+                                          tryAwaitRelease()
+                                          showOriginal = false
+                                      }
+                                  )
+                              }
+                          ) {
+                              Icon(
+                                  imageVector = Icons.Outlined.Compare,
+                                  contentDescription = "Orijinal Karşılaştır",
+                                  tint = if (showOriginal) Color(0xFFE5A93C) else Color.White
+                              )
+                          }
+                          IconButton(onClick = { params = EditParams() }) {
+                              Icon(Icons.Filled.RestartAlt, contentDescription = "Sıfırla", tint = Color.White)
+                          }
+                          Button(
+                              onClick = { saveCopy() },
+                              enabled = !isSaving && sourceBitmap != null,
+                              colors = ButtonDefaults.buttonColors(
+                                  containerColor = Color(0xFFE5A93C),
+                                  contentColor = Color.Black
+                              )
+                          ) {
+                              Text(if (isSaving) "Kaydediliyor..." else "Kaydet", fontWeight = FontWeight.SemiBold)
+                          }
+                      }
+                  }
+
+                  // Real-Time OpenGL Preview
+                  Box(
+                      modifier = Modifier
+                          .fillMaxWidth()
+                          .weight(1.15f)
+                          .background(Color.Black),
+                      contentAlignment = Alignment.Center
+                  ) {
+                      AndroidView(
+                          factory = { ctx ->
+                              PhotoGlSurfaceView(ctx).also { view ->
+                                  glViewRef = view
+                                  sourceBitmap?.let { view.setBitmap(it) }
+                                  view.updateParams(params, showOriginal)
+                              }
+                          },
+                          modifier = Modifier.fillMaxSize()
+                      )
+                  }
+
+                  // Tool Controls Area
+                  Column(
+                      modifier = Modifier
+                          .fillMaxWidth()
+                          .weight(1f)
+                          .background(Color(0xFF12151C))
+                          .verticalScroll(rememberScrollState())
+                          .padding(horizontal = 16.dp, vertical = 10.dp),
+                      verticalArrangement = Arrangement.spacedBy(8.dp)
+                  ) {
+                      when (activeTab) {
+                          0 -> {
+                              ParamSlider("Pozlama", params.exposure, -3f..3f) { params = params.copy(exposure = it) }
+                              ParamSlider("Kontrast", params.contrast, -1f..1f) { params = params.copy(contrast = it) }
+                              ParamSlider("Aydınlıklar", params.highlights, -1f..1f) { params = params.copy(highlights = it) }
+                              ParamSlider("Gölgeler", params.shadows, -1f..1f) { params = params.copy(shadows = it) }
+                              ParamSlider("Beyazlar", params.whites, -1f..1f) { params = params.copy(whites = it) }
+                              ParamSlider("Siyahlar", params.blacks, -1f..1f) { params = params.copy(blacks = it) }
+                          }
+                          1 -> {
+                              ParamSlider("Sıcaklık (Temp)", params.temp, -1f..1f) { params = params.copy(temp = it) }
+                              ParamSlider("Renk Tonu (Tint)", params.tint, -1f..1f) { params = params.copy(tint = it) }
+                              ParamSlider("Canlılık (Vibrance)", params.vibrance, -1f..1f) { params = params.copy(vibrance = it) }
+                              ParamSlider("Doygunluk", params.saturation, -1f..1f) { params = params.copy(saturation = it) }
+                              HorizontalDivider(color = Color(0xFF252A34))
+                              LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                  items(params.hslBands.size) { idx ->
+                                      val b = params.hslBands[idx]
+                                      FilterChip(
+                                          selected = activeHslIndex == idx,
+                                          onClick = { activeHslIndex = idx },
+                                          label = { Text(b.name, fontSize = 12.sp) }
+                                      )
+                                  }
+                              }
+                              val band = params.hslBands[activeHslIndex]
+                              ParamSlider("${band.name} Ton", band.hue, -1f..1f) { v ->
+                                  val list = params.hslBands.toMutableList().apply { this[activeHslIndex] = band.copy(hue = v) }
+                                  params = params.copy(hslBands = list)
+                              }
+                              ParamSlider("${band.name} Doygunluk", band.saturation, -1f..1f) { v ->
+                                  val list = params.hslBands.toMutableList().apply { this[activeHslIndex] = band.copy(saturation = v) }
+                                  params = params.copy(hslBands = list)
+                              }
+                              ParamSlider("${band.name} Parlaklık", band.luminance, -1f..1f) { v ->
+                                  val list = params.hslBands.toMutableList().apply { this[activeHslIndex] = band.copy(luminance = v) }
+                                  params = params.copy(hslBands = list)
+                              }
+                          }
+                          2 -> {
+                              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                  CurveChannel.entries.forEach { ch ->
+                                      FilterChip(
+                                          selected = activeChannel == ch,
+                                          onClick = { activeChannel = ch },
+                                          label = { Text(ch.label, fontSize = 12.sp) }
+                                      )
+                                  }
+                                  Spacer(Modifier.weight(1f))
+                                  TextButton(onClick = {
+                                      params = params.withCurve(activeChannel, listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f)))
+                                  }) {
+                                      Text("Kanalı Sıfırla", fontSize = 12.sp)
+                                  }
+                              }
+                              ToneCurvePad(
+                                  points = params.curveFor(activeChannel),
+                                  onPointsChange = { updated -> params = params.withCurve(activeChannel, updated) }
+                              )
+                          }
+                          3 -> {
+                              val wheelNames = listOf("Gölgeler", "Orta Tonlar", "Aydınlıklar")
+                              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                  wheelNames.forEachIndexed { idx, title ->
+                                      FilterChip(
+                                          selected = activeWheel == idx,
+                                          onClick = { activeWheel = idx },
+                                          label = { Text(title, fontSize = 12.sp) }
+                                      )
+                                  }
+                              }
+                              val currentW = when (activeWheel) {
+                                  0 -> params.shadowWheel
+                                  1 -> params.midtoneWheel
+                                  else -> params.highlightWheel
+                              }
+                              ColorWheelPad(
+                                  wheel = currentW,
+                                  onWheelChange = { updated ->
+                                      params = when (activeWheel) {
+                                          0 -> params.copy(shadowWheel = updated)
+                                          1 -> params.copy(midtoneWheel = updated)
+                                          else -> params.copy(highlightWheel = updated)
+                                      }
+                                  }
+                              )
+                              ParamSlider("Parlaklık (Y)", currentW.luminance, -1f..1f) { lumVal ->
+                                  val updated = currentW.copy(luminance = lumVal)
+                                  params = when (activeWheel) {
+                                      0 -> params.copy(shadowWheel = updated)
+                                      1 -> params.copy(midtoneWheel = updated)
+                                      else -> params.copy(highlightWheel = updated)
+                                  }
+                              }
+                          }
+                          4 -> {
+                              ParamSlider("Sis Kaldırma (Dehaze)", params.dehaze, -1f..1f) { params = params.copy(dehaze = it) }
+                              ParamSlider("Netlik (Clarity)", params.clarity, -1f..1f) { params = params.copy(clarity = it) }
+                              ParamSlider("Keskinlik (Sharpen)", params.sharpen, 0f..1f) { params = params.copy(sharpen = it) }
+                              ParamSlider("Vinyet", params.vignette, -1f..1f) { params = params.copy(vignette = it) }
+                              ParamSlider("Gren (Grain)", params.grain, 0f..1f) { params = params.copy(grain = it) }
+                          }
+                      }
+                  }
+
+                  // Bottom Category Tabs
+                  val tabs = listOf("Işık", "Renk / HSL", "Eğriler", "Tekerler", "Efekt")
+                  Row(
+                      modifier = Modifier
+                          .fillMaxWidth()
+                          .background(Color(0xFF0A0B0D))
+                          .horizontalScroll(rememberScrollState())
+                          .padding(horizontal = 8.dp, vertical = 6.dp),
+                      horizontalArrangement = Arrangement.spacedBy(8.dp)
+                  ) {
+                      tabs.forEachIndexed { idx, label ->
+                          val selected = activeTab == idx
+                          Surface(
+                              shape = RoundedCornerShape(20.dp),
+                              color = if (selected) Color(0xFFE5A93C) else Color(0xFF1A1E26),
+                              modifier = Modifier.clickable { activeTab = idx }
+                          ) {
+                              Text(
+                                  text = label,
+                                  color = if (selected) Color.Black else Color(0xFFD1D5DB),
+                                  fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                  fontSize = 13.sp,
+                                  modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                              )
+                          }
+                      }
+                  }
+              }
+
+              if (showUnsavedDialog) {
+                  AlertDialog(
+                      onDismissRequest = { showUnsavedDialog = false },
+                      title = { Text("Kaydedilmemiş Değişiklikler") },
+                      text = { Text("Yapılan renk ve ışık ayarları henüz kaydedilmedi. Kopya olarak kaydetmek ister misin?") },
+                      confirmButton = {
+                          TextButton(onClick = {
+                              showUnsavedDialog = false
+                              saveCopy()
+                          }) {
+                              Text("Kaydet")
+                          }
+                      },
+                      dismissButton = {
+                          TextButton(onClick = {
+                              showUnsavedDialog = false
+                              onClose(null)
+                          }) {
+                              Text("Değişiklikleri At")
+                          }
+                      }
+                  )
+              }
+          }
+
+          @Composable
+          private fun ParamSlider(
+              label: String,
+              value: Float,
+              range: ClosedFloatingPointRange<Float>,
+              onValueChange: (Float) -> Unit
+          ) {
+              Column(modifier = Modifier.fillMaxWidth()) {
+                  Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceBetween
+                  ) {
+                      Text(label, fontSize = 12.sp, color = Color(0xFFD1D5DB))
+                      Text(
+                          text = String.format(java.util.Locale.US, "%.2f", value),
+                          fontSize = 12.sp,
+                          color = Color(0xFFE5A93C)
+                      )
+                  }
+                  Slider(
+                      value = value.coerceIn(range.start, range.endInclusive),
+                      onValueChange = onValueChange,
+                      valueRange = range,
+                      modifier = Modifier.height(28.dp)
+                  )
+              }
+          }
+
+          @Composable
+          private fun ToneCurvePad(
+              points: List<CurvePoint>,
+              onPointsChange: (List<CurvePoint>) -> Unit
+          ) {
+              var draggedIdx by remember { mutableStateOf<Int?>(null) }
+
+              Canvas(
+                  modifier = Modifier
+                      .fillMaxWidth()
+                      .height(170.dp)
+                      .clip(RoundedCornerShape(12.dp))
+                      .background(Color(0xFF0C0E12))
+                      .pointerInput(points) {
+                          detectDragGestures(
+                              onDragStart = { offset ->
+                                  val w = size.width.toFloat().coerceAtLeast(1f)
+                                  val h = size.height.toFloat().coerceAtLeast(1f)
+                                  val nx = (offset.x / w).coerceIn(0f, 1f)
+                                  val ny = (1f - offset.y / h).coerceIn(0f, 1f)
+                                  val hitIndex = points.indexOfFirst { pt ->
+                                      val px = pt.x * w
+                                      val py = (1f - pt.y) * h
+                                      hypot(px - offset.x, py - offset.y) < 42f
+                                  }
+                                  if (hitIndex >= 0) {
+                                      draggedIdx = hitIndex
+                                  } else {
+                                      val next = (points + CurvePoint(nx, ny)).sortedBy { it.x }
+                                      draggedIdx = next.indexOfFirst { it.x == nx && it.y == ny }.coerceAtLeast(0)
+                                      onPointsChange(next)
+                                  }
+                              },
+                              onDragEnd = { draggedIdx = null },
+                              onDragCancel = { draggedIdx = null },
+                              onDrag = { change, _ ->
+                                  val idx = draggedIdx ?: return@detectDragGestures
+                                  if (idx !in points.indices) return@detectDragGestures
+                                  val w = size.width.toFloat().coerceAtLeast(1f)
+                                  val h = size.height.toFloat().coerceAtLeast(1f)
+                                  val nx = if (idx == 0) 0f else if (idx == points.lastIndex) 1f else (change.position.x / w).coerceIn(0.02f, 0.98f)
+                                  val ny = (1f - change.position.y / h).coerceIn(0f, 1f)
+                                  val mutable = points.toMutableList()
+                                  mutable[idx] = CurvePoint(nx, ny)
+                                  onPointsChange(mutable)
+                              }
+                          )
+                      }
+              ) {
+                  val w = size.width
+                  val h = size.height
+                  drawLine(Color(0xFF282E3A), Offset(0f, h), Offset(w, 0f), strokeWidth = 1.5f)
+                  for (i in 1..3) {
+                      val g = i / 4f
+                      drawLine(Color(0xFF1A1E26), Offset(w * g, 0f), Offset(w * g, h), strokeWidth = 1f)
+                      drawLine(Color(0xFF1A1E26), Offset(0f, h * g), Offset(w, h * g), strokeWidth = 1f)
+                  }
+                  if (points.size >= 2) {
+                      val path = Path().apply {
+                          moveTo(points.first().x * w, (1f - points.first().y) * h)
+                          for (i in 1 until points.size) {
+                              lineTo(points[i].x * w, (1f - points[i].y) * h)
+                          }
+                      }
+                      drawPath(path, color = Color(0xFFE5A93C), style = Stroke(width = 3f))
+                  }
+                  points.forEach { pt ->
+                      drawCircle(
+                          color = Color.White,
+                          radius = 7f,
+                          center = Offset(pt.x * w, (1f - pt.y) * h)
+                      )
+                  }
+              }
+          }
+
+          @Composable
+          private fun ColorWheelPad(
+              wheel: ColorWheelOffset,
+              onWheelChange: (ColorWheelOffset) -> Unit
+          ) {
+              Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                  Canvas(
+                      modifier = Modifier
+                          .size(140.dp)
+                          .clip(CircleShape)
+                          .background(Color(0xFF0C0E12))
+                          .pointerInput(wheel) {
+                              detectDragGestures { change, _ ->
+                                  val r = size.width / 2f
+                                  val dx = change.position.x - r
+                                  val dy = change.position.y - r
+                                  val dist = hypot(dx, dy).coerceAtMost(r)
+                                  val strength = (dist / r).coerceIn(0f, 1f)
+                                  val angleDeg = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+                                  onWheelChange(wheel.copy(hueAngleDeg = angleDeg, strength = strength))
+                              }
+                          }
+                  ) {
+                      val radius = size.minDimension / 2f
+                      val center = Offset(radius, radius)
+                      drawCircle(Color(0xFF232834), radius = radius, center = center, style = Stroke(width = 2f))
+                      drawCircle(Color(0xFF1A1E26), radius = radius * 0.5f, center = center, style = Stroke(width = 1f))
+
+                      val rad = Math.toRadians(wheel.hueAngleDeg.toDouble())
+                      val px = center.x + (cos(rad) * wheel.strength * radius).toFloat()
+                      val py = center.y + (sin(rad) * wheel.strength * radius).toFloat()
+                      drawLine(Color(0xFF6B7280), center, Offset(px, py), strokeWidth = 2f)
+                      drawCircle(Color(0xFFE5A93C), radius = 9f, center = Offset(px, py))
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > gradlew
+          #!/usr/bin/env sh
+          exec gradle "$@"
+          EOF
+          chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-pro-editor-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
